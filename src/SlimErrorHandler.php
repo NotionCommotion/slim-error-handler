@@ -5,7 +5,7 @@ class SlimErrorHandler
 
     private $app, $container, $returnJson, $displayErrors, $excludedExceptions;
 
-    public function __construct(\Slim\Container $app, array $options=[]){
+    public function __construct(\Slim\App $app, array $options=[]){
         $this->app=$app;
         $this->container=$app->getContainer();
         $this->returnJson=$options['returnJson']??true;

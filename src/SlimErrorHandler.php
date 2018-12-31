@@ -28,9 +28,15 @@ class SlimErrorHandler
         };
         $this->container['errorHandler'] = function ($c) {
             return function ($request, $response, $e) use ($c) {
-                $msg=in_array(get_class($e), $a)?$e->getMessage():'Slim errorHandler: '.$this->getExceptionError($e);
+                $msg='Slim errorHandler: '.$this->getExceptionError($e);
                 syslog(LOG_ERR, $msg);
-                return $this->returnError(500, $this->displayErrors?$msg:'Server Error (0)');
+                if(in_array(get_class($e), $this->excludedExceptions)) {
+                    $msg=$e->getMessage();
+                }
+                else {
+                    $msg=$this->displayErrors?$msg:'Server Error (0)';
+                }
+                return $this->returnError(500, $msg);
             };
         };
         $this->container['phpErrorHandler'] = function ($c) {

@@ -3,56 +3,60 @@ namespace Greenbean\SlimErrorHandler;
 class SlimErrorHandler
 {
 
-    private $app, $container, $debug;
+    private $app, $container, $allowedExceptions, $contentType, $debug;
 
-    public function __construct(\Slim\App $app, string $contentType='application/json;charset=utf-8', int $debug=false){
+    public function __construct(\Slim\App $app, array $allowedExceptions=[], string $contentType='application/json;charset=utf-8', $debug=false){
         $this->app=$app;
         $this->container=$app->getContainer();
+        $this->allowedExceptions=$allowedExceptions;
         $this->contentType=$contentType;
-        $this->debug=$debug;
+        $this->debug=$debug;    //$debug can be true/false or 1/0
     }
 
     public function setHandlers(){
         $this->container['notFoundHandler'] = function ($c) {
             return function ($request, $response) use ($c) {
-                syslog(LOG_ERR, 'Slim notFoundHandler from client '.$this->getClientIp());
+                if ($this->debug) $this->logError($request, 'Slim notFoundHandler from client');
                 $msg='Page not found';
-                return $this->returnError($msg, 404, $request->isXhr());
+                return $this->returnError($msg, 404, $response);
             };
         };
         $this->container['notAllowedHandler'] = function ($c) {
             return function ($request, $response, $methods) use ($c) {
-                syslog(LOG_ERR, 'Slim notAllowedHandler from client '.$this->getClientIp());
+                if ($this->debug) $this->logError($request, 'Slim notAllowedHandler from client');
                 $msg='Method must be one of: ' . implode(', ', $methods);
-                return $this->returnError($msg, 405, $request->isXhr())->withHeader('Allow', implode(', ', $methods));
+                return $this->returnError($msg, 405, $response)->withHeader('Allow', implode(', ', $methods));
             };
         };
         $this->container['errorHandler'] = function ($c) {
             return function ($request, $response, $e) use ($c) {
-                $msg='Slim errorHandler: '.$this->getExceptionError($e);
-                syslog(LOG_ERR, $msg);
-                if($e instanceof AbstractException) {
-                    $msg=$this->debug?$msg:$e->getMessage();
-                    return $this->returnError($msg, $e->getStatusCode(), $request->isXhr());
+                if($this->debug) syslog(LOG_ERR, 'Slim errorHandler: '.$this->getExceptionError($e));
+                if($this->debug || $e instanceof Exception || $this->instanceOf($e, $this->allowedExceptions)) {
+                    return $this->returnError($e->getMessage(), $e->getCode(), $response);
                 }
                 else {
-                    $msg=$this->debug?$msg:'Server Error (0)';
-                    return $this->returnError($msg, 500, $request->isXhr());
+                    return $this->returnError('Server Error (0)', 500, $response);
                 }
             };
         };
         $this->container['phpErrorHandler'] = function ($c) {
             return function ($request, $response, $e) use ($c) {
-                $msg="PHP Error: {$e->getFile()} ({$e->getline()}): {$e->getMessage()} ({$e->getCode()})";
-                syslog(LOG_ERR, 'Slim phpErrorHandler: '.$msg);
-                $msg=$this->debug?$msg:'Server Error (1)';
-                return $this->returnError($msg, 500, $request->isXhr());
+                if ($this->debug) {
+                    syslog(LOG_ERR, "Slim phpErrorHandler: {$e->getFile()} ({$e->getline()}): {$e->getMessage()} ({$e->getCode()})");
+                    return $this->returnError($e->getMessage(), $e->getCode(), $response);
+                }
+                else {
+                    return $this->returnError('Server Error (1)', 500, $response);
+                }
             };
         };
         return $this;
     }
 
     public function enableCor(bool $enabledViaApache, string $serverUrl=null) {
+        /* I previously had the following, but don't know why anymore.
+        if ($_SERVER['REQUEST_METHOD']==='OPTIONS') {http_response_code(200);exit;}
+        */
         if(!$enabledViaApache) {
             if(!$serverUrl) throw new \Exception('Url with prototol (i.e. http://mysite) must be supplied');
             $this->app->options('/{routes:.+}', function ($request, $response, $args) {
@@ -77,20 +81,31 @@ class SlimErrorHandler
         return $this;
     }
 
+    private function instanceOf(\Exception $e, array $exceptions): bool {
+        foreach ($exceptions as $exception){
+            if($e instanceof $exception) return true;
+        }
+        return false;
+    }
+
     private function getClientIp() {
         $rIp=$_SERVER['REMOTE_ADDR']??'None';
         $fIp=$_SERVER['HTTP_X_FORWARDED_FOR']??'None';
         return "REMOTE_ADDR: $rIp HTTP_X_FORWARDED_FOR: $fIp";
     }
 
-    private function returnError(string $msg, int $statusCode, int $isXhr) {
-        //Future.  Check if $this->contentType='application/json;charset=utf-8' and do as applicable.
-        return $isXhr
-        ?$this->container['response']->withJson(['message'=>$msg], $statusCode)
-        :$this->container['response']->withStatus($statusCode)->withHeader('Content-Type', 'text/html')->write($msg);
+    private function logError($request, $text) {
+        $uri=(string)$request->getUri();
+        syslog(LOG_ERR, "$text: method: {$request->getMethod()} uri: $uri remote IP: {$this->getClientIp()}");
+    }
+
+    private function returnError(string $msg, int $statusCode, $response) {
+        return strpos($this->contentType, 'application/json') === 0
+        ?$response->withJson(['message'=>$msg], $statusCode)
+        :$response->withStatus($statusCode)->withHeader('Content-Type', $this->contentType)->write($msg);
     }
 
     private function getExceptionError(\Exception $e) {
-        return "{$e->getFile()} ({$e->getline()}): {$e->getMessage()} ({$e->getCode()})";
+        return "{$e->getFile()} ({$e->getline()}): {$e->getMessage()} ({$e->getCode()}) class: ".get_class($e);
     }
 }

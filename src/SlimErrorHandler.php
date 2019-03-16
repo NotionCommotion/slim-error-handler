@@ -4,6 +4,7 @@ class SlimErrorHandler
 {
 
     private $app, $container, $allowedExceptions, $contentType, $debug;
+    //allowedExceptions is an array of closure.
 
     public function __construct(\Slim\App $app, array $allowedExceptions=[], string $contentType='application/json;charset=utf-8', $debug=false){
         $this->app=$app;
@@ -30,9 +31,12 @@ class SlimErrorHandler
         };
         $this->container['errorHandler'] = function ($c) {
             return function ($request, $response, $e) use ($c) {
-                if($this->debug) syslog(LOG_ERR, 'Slim errorHandler: '.$this->getExceptionError($e));
-                if($this->debug || $e instanceof Exception || $this->instanceOf($e, $this->allowedExceptions)) {
-                    return $this->returnError($e->getMessage(), $e->getCode(), $response);
+                if($this->debug || true) syslog(LOG_ERR, 'Slim errorHandler: '.$this->getExceptionError($e));
+                if($this->debug || $e instanceof Exception) {
+                    return $this->returnError($e->getMessage(), 400, $response);
+                }
+                elseif(isset($this->allowedExceptions[get_class($e)])) {
+                    return $this->returnError($this->allowedExceptions[get_class($e)]($c, $e), 400, $response);
                 }
                 else {
                     return $this->returnError('Server Error (0)', 500, $response);
@@ -41,9 +45,9 @@ class SlimErrorHandler
         };
         $this->container['phpErrorHandler'] = function ($c) {
             return function ($request, $response, $e) use ($c) {
-                if ($this->debug) {
-                    syslog(LOG_ERR, "Slim phpErrorHandler: {$e->getFile()} ({$e->getline()}): {$e->getMessage()} ({$e->getCode()})");
-                    return $this->returnError($e->getMessage(), $e->getCode(), $response);
+                if ($this->debug || true) {
+                    syslog(LOG_ERR, 'Slim phpErrorHandler: '.$this->getExceptionError($e));
+                    return $this->returnError($e->getMessage(), 500, $response);
                 }
                 else {
                     return $this->returnError('Server Error (1)', 500, $response);
@@ -105,7 +109,7 @@ class SlimErrorHandler
         :$response->withStatus($statusCode)->withHeader('Content-Type', $this->contentType)->write($msg);
     }
 
-    private function getExceptionError(\Exception $e) {
-        return "{$e->getFile()} ({$e->getline()}): {$e->getMessage()} ({$e->getCode()}) class: ".get_class($e);
+    private function getExceptionError($e) {    //$e will be \Error or \Greenbean\SlimErrorHandler\Exception
+        return "{$e->getFile()} ({$e->getLine()}): {$e->getMessage()} ({$e->getCode()}) class: ".get_class($e);
     }
 }

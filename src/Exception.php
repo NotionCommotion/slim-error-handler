@@ -4,7 +4,7 @@ class Exception extends \Exception
 {
     //code is http status code and is required.
     private $json=false;
-    public function __construct(string $message, int $code=400, $previous=null) {
+    public function __construct($message, int $code=400, $previous=null) {
         if(!is_string($message)) {
             $this->json=$message;
             $message='JSON error message';

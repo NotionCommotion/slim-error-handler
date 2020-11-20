@@ -22,11 +22,24 @@ class SlimErrorHandler
                 return $this->returnError($msg, 404, $response);
             };
         };
+        $this->container['customErrorHandler'] = function ($c) {
+            return function ($request, $response, string $msg, int $httpCode=400) use ($c) {
+                //if ($this->debug) $this->logError($request, 'Slim customErrorHandler from client');
+                return $this->returnError($msg, $httpCode, $response);
+            };
+        };
         $this->container['notAllowedHandler'] = function ($c) {
             return function ($request, $response, $methods) use ($c) {
                 if ($this->debug) $this->logError($request, 'Slim notAllowedHandler from client');
                 $msg='Method must be one of: ' . implode(', ', $methods);
                 return $this->returnError($msg, 405, $response)->withHeader('Allow', implode(', ', $methods));
+            };
+        };
+        $this->container['invalidUserIdHandler'] = function ($c) {
+            return function ($request, $response) use ($c) {
+                $msg = $request->hasHeader('X-GreenBean-UserId')?'Invalid User ID':'Missing User ID';
+                if ($this->debug) $this->logError($request, 'Slim invalidUserIdHandler from client: '.$msg);
+                return $this->returnError($msg, 403, $response);
             };
         };
         $this->container['errorHandler'] = function ($c) {
@@ -54,34 +67,6 @@ class SlimErrorHandler
                 }
             };
         };
-        return $this;
-    }
-
-    public function enableCor(bool $enabledViaApache, string $serverUrl=null) {
-        /* I previously had the following, but don't know why anymore.
-        if ($_SERVER['REQUEST_METHOD']==='OPTIONS') {http_response_code(200);exit;}
-        */
-        if(!$enabledViaApache) {
-            if(!$serverUrl) throw new \Exception('Url with prototol (i.e. http://mysite) must be supplied');
-            $this->app->options('/{routes:.+}', function ($request, $response, $args) {
-                return $response;
-            });
-
-            $this->app->add(function ($req, $res, $next) {
-                $response = $next($req, $res);
-                return $response
-                ->withHeader('Access-Control-Allow-Origin',$serverUrl)
-                ->withHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept, Origin, Authorization')
-                ->withHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-            });
-        }
-
-        // Catch-all route to serve a 404 Not Found page if none of the routes match
-        // NOTE: make sure this route is defined last
-        $this->app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function($req, $res) {
-            $handler = $this->notFoundHandler; // handle using the default Slim page not found handler
-            return $handler($req, $res);
-        });
         return $this;
     }
 
